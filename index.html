@@ -32,6 +32,19 @@ td,th{padding:7px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
 th{color:#64748b;font-weight:600}
 button.copy{margin-top:12px;padding:9px 14px;border-radius:10px;border:0;background:#0f172a;color:#fff;font-size:14px;cursor:pointer}
 .hide{display:none}
+.banner{background:#0f172a;color:#fff;border-radius:16px;padding:18px 20px;margin-bottom:16px}
+.banner b{display:block;font-size:16px;margin-bottom:4px}
+.banner .note{color:#cbd5e1;margin:0 0 12px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+a.btn{display:inline-block;padding:10px 16px;border-radius:10px;background:#0f172a;color:#fff;font-size:14px;font-weight:600;text-decoration:none}
+a.btn.light{background:#fff;color:#0f172a;border:1px solid #cbd5e1}
+.banner a.btn{background:#fff;color:#0f172a}
+input[type=text],input[type=email],input[type=tel],textarea{width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;background:#fff;font-family:inherit}
+textarea{resize:vertical;min-height:70px}
+button.send{margin-top:14px;padding:11px 18px;border-radius:10px;border:0;background:#0f172a;color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+.formmsg{margin-top:10px;font-size:14px}
+.foot{text-align:center;color:#64748b;font-size:13px;margin-top:8px}
+.foot a{color:#475569}
 </style>
 </head>
 <body>
@@ -85,6 +98,59 @@ button.copy{margin-top:12px;padding:9px 14px;border-radius:10px;border:0;backgro
     <div class="sum" id="resSum">—</div>
     <div class="rows" id="resRows"></div>
     <button class="copy" id="copyBtn">Скопировать расчёт</button>
+  </div>
+
+  <div class="banner hide" id="subBanner">
+    <b>Расчёт скопирован</b>
+    <div class="note">Подпишитесь на наш канал в Telegram или напишите нам в Max — присылаем новости виджетов и полезные материалы по amoCRM.</div>
+    <div class="btns">
+      <a class="btn" href="https://t.me/+6ySKa8b1NKZhMDJi" target="_blank" rel="noopener">Подписаться в Telegram</a>
+      <a class="btn" href="https://max.ru/id5032391973_bot" target="_blank" rel="noopener">Открыть в Max</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>Запросить счёт</b>
+    <div class="note">Расчёт выше подставится в письмо автоматически. Нажмите «Отправить» — откроется почтовая программа с готовым письмом на info@flysk.ru.</div>
+    <form id="invoiceForm" novalidate>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <label for="fCompany">Компания</label>
+          <input type="text" id="fCompany" autocomplete="organization">
+        </div>
+        <div>
+          <label for="fInn">ИНН</label>
+          <input type="text" id="fInn" inputmode="numeric" autocomplete="off">
+        </div>
+        <div>
+          <label for="fEmail">Email для счёта</label>
+          <input type="email" id="fEmail" autocomplete="email">
+        </div>
+        <div>
+          <label for="fPhone">Телефон</label>
+          <input type="tel" id="fPhone" autocomplete="tel">
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label for="fComment">Комментарий</label>
+        <textarea id="fComment"></textarea>
+      </div>
+      <button type="submit" class="send">Отправить запрос</button>
+      <div class="formmsg err" id="formMsg"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <b>Связаться с нами</b>
+    <div class="note">Ответим в течение 15 минут, пн–пт 9:00–19:00 МСК.</div>
+    <div class="btns" style="margin-top:12px">
+      <a class="btn" href="https://t.me/flyskbot" target="_blank" rel="noopener">Telegram</a>
+      <a class="btn" href="https://max.ru/id5032391973_bot" target="_blank" rel="noopener">Max</a>
+      <a class="btn" href="https://wa.me/74957339981" target="_blank" rel="noopener">WhatsApp</a>
+      <a class="btn light" href="tel:+74957339981">+7 (495) 733-99-81</a>
+      <a class="btn light" href="mailto:info@flysk.ru">info@flysk.ru</a>
+      <a class="btn light" href="https://flysk.ru" target="_blank" rel="noopener">Сайт flysk.ru</a>
+    </div>
   </div>
 
   <div class="card">
@@ -236,8 +302,38 @@ document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{
 ['period','start','users','today','add','extPeriod'].forEach(id=>$(id).addEventListener('input',calc));
 $('copyBtn').onclick = ()=>{
   const t = $('copyBtn').dataset.text; if(!t) return;
-  navigator.clipboard.writeText(t).then(()=>{ $('copyBtn').textContent='Скопировано'; setTimeout(()=>$('copyBtn').textContent='Скопировать расчёт',1500); });
+  navigator.clipboard.writeText(t).then(()=>{
+    $('copyBtn').textContent='Скопировано'; setTimeout(()=>$('copyBtn').textContent='Скопировать расчёт',1500);
+    $('subBanner').classList.remove('hide');
+  });
 };
+$('invoiceForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const msg = $('formMsg');
+  const calcText = $('copyBtn').dataset.text;
+  const company = $('fCompany').value.trim();
+  const email = $('fEmail').value.trim();
+  msg.className = 'formmsg err';
+  if (!calcText){ msg.textContent = 'Сначала получите расчёт — заполните данные тарифа выше.'; return; }
+  if (!company){ msg.textContent = 'Укажите название компании.'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.textContent = 'Укажите корректный email для счёта.'; return; }
+  const body = [
+    'Прошу выставить счёт.',
+    '',
+    'Компания: ' + company,
+    'ИНН: ' + ($('fInn').value.trim() || '—'),
+    'Email: ' + email,
+    'Телефон: ' + ($('fPhone').value.trim() || '—'),
+    'Комментарий: ' + ($('fComment').value.trim() || '—'),
+    '',
+    'Расчёт:',
+    calcText
+  ].join('\n');
+  msg.textContent = '';
+  location.href = 'mailto:info@flysk.ru?subject=' + encodeURIComponent('Запрос счёта: ' + company) + '&body=' + encodeURIComponent(body);
+  msg.className = 'formmsg';
+  msg.textContent = 'Если почтовая программа не открылась, напишите нам на info@flysk.ru или в Telegram/Max — кнопки ниже.';
+});
 calc();
 </script>
 </body>
