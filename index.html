@@ -31,6 +31,9 @@ select,input[type=number],input[type=date]{width:100%;padding:10px 12px;border:1
 table{border-collapse:collapse;width:100%;font-size:14px}
 td,th{padding:7px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
 th{color:#64748b;font-weight:600}
+.opt label{display:flex;gap:8px;align-items:center;font-weight:500;color:#0f172a;margin:0}
+.opt input[type=checkbox]{width:auto}
+.opt .lbl{display:block;font-size:13px;color:#475569;margin:0 0 6px;font-weight:600}
 button.copy{margin-top:12px;padding:9px 14px;border-radius:10px;border:0;background:#0f172a;color:#fff;font-size:14px;cursor:pointer}
 .hide{display:none}
 </style>
@@ -38,10 +41,10 @@ button.copy{margin-top:12px;padding:9px 14px;border-radius:10px;border:0;backgro
 <body>
 <div class="wrap">
   <h1>Калькулятор докупки</h1>
-  <div class="sub">Расчёт доплаты за пользователей или продление срока: виджеты Flysk и лицензии amoCRM</div>
+  <div class="sub">Расчёт доплаты за пользователей или продление срока: виджеты Флайск и лицензии amoCRM</div>
 
   <div class="tabs" id="productTabs">
-    <div class="tab on" data-product="widgets">Виджеты Flysk</div>
+    <div class="tab on" data-product="widgets">Виджеты Флайск</div>
     <div class="tab" data-product="amo">Лицензии amoCRM</div>
   </div>
 
@@ -57,6 +60,13 @@ button.copy{margin-top:12px;padding:9px 14px;border-radius:10px;border:0;backgro
   <div class="tabs" id="modeTabs">
     <div class="tab on" data-mode="users">Докупить пользователей</div>
     <div class="tab" data-mode="term">Докупить срок</div>
+    <div class="tab" data-mode="both">Докупка + продление</div>
+  </div>
+
+  <div class="card hide" id="optCard">
+    <b>Опции amoCRM</b>
+    <div class="note">Оплачиваются за аккаунт, не зависят от числа пользователей. Подключённые опции входят в стоимость продления.</div>
+    <div class="grid" id="optBox" style="margin-top:12px"></div>
   </div>
 
   <div class="card">
@@ -136,6 +146,27 @@ const TARIFFS = {
 const AMO_PAID = [6, 8, 10, 12, 18, 24];
 const AMO_BONUS = {6: 0, 8: 1, 10: 2, 12: 0, 18: 6, 24: 0};
 const INTEGRATOR_BONUS = 1;
+
+/* Платные опции amoCRM, ₽ в месяц без НДС за аккаунт (amocrm.ru/buy и /buy/archive, сверено 16.10.2026).
+   choices — взаимоисключающие уровни; qty — можно взять несколько единиц (например, блоков по 10 ГБ).
+   Токены AI-агентов (999 ₽ за 100 000 токенов) — разовая покупка без срока, в расчёт не входит. */
+const AMO_OPTIONS = [
+  {id:'api', name:'Лимит API на аккаунт', choices:[
+    {name:'До 100 запросов/с', price:60000},
+    {name:'До 150 запросов/с', price:180000},
+    {name:'До 200 запросов/с', price:360000},
+    {name:'Архив: до 100 запросов/с', price:50000},
+    {name:'Архив: до 150 запросов/с', price:150000},
+    {name:'Архив: до 200 запросов/с', price:300000}]},
+  {id:'filter', name:'API фильтрация', choices:[
+    {name:'До 500 тыс. карточек', price:999},
+    {name:'До 1 млн карточек', price:1999},
+    {name:'От 1 млн карточек', price:4999}]},
+  {id:'limits', name:'Лимиты+', price:999},
+  {id:'super', name:'Супер-поля', price:999},
+  {id:'files', name:'Файловое пространство, блоков по 10 ГБ', price:999, qty:true, short:'Файловое пространство'},
+  {id:'opday', name:'Операционный день (архивная опция)', price:499, short:'Операционный день'}
+];
 
 const NOW = 'действует';
 const U = (g, name, price, from, to, o={}) => Object.assign({g, name, price, base:0, included:0, minUsers:1, maxUsers:Infinity, from, to}, o);
@@ -256,6 +287,27 @@ function remainingMonths(from, to){
   const days = Math.round((to - addMonths(from, full)) / 86400000);
   return {months: full + days/30, full, days};
 }
+function fillOptions(){
+  $('optBox').innerHTML = AMO_OPTIONS.map(o=>{
+    const price = n => n.toLocaleString('ru-RU')+' ₽/мес';
+    if (o.choices) return `<div class="opt"><span class="lbl">${o.name}</span><select id="opt_${o.id}"><option value="">Не подключено</option>${o.choices.map((c,i)=>`<option value="${i}">${c.name} — ${price(c.price)}</option>`).join('')}</select></div>`;
+    if (o.qty) return `<div class="opt"><span class="lbl">${o.name} — ${price(o.price)}</span><input type="number" id="opt_${o.id}" min="0" value="0"></div>`;
+    return `<div class="opt"><label><input type="checkbox" id="opt_${o.id}"> ${o.name} — ${price(o.price)}</label></div>`;
+  }).join('');
+  $('optBox').querySelectorAll('select,input').forEach(el=>el.addEventListener('input',calc));
+}
+/* выбранные опции: [{name, price}], price — в месяц */
+function selectedOptions(){
+  if (product !== 'amo') return [];
+  const res = [];
+  AMO_OPTIONS.forEach(o=>{
+    const el = $('opt_'+o.id);
+    if (o.choices){ if (el.value !== ''){ const c = o.choices[+el.value]; res.push({name:o.name+': '+c.name.toLowerCase(), price:c.price}); } }
+    else if (o.qty){ const n = Math.floor(+el.value); if (n > 0) res.push({name:o.short+', '+n*10+' ГБ', price:o.price*n}); }
+    else if (el.checked) res.push({name:o.short || o.name, price:o.price});
+  });
+  return res;
+}
 function parseD(v){ const [y,m,d] = v.split('-').map(Number); return new Date(y, m-1, d); }
 function dfmt(d){ return d.toLocaleDateString('ru-RU'); }
 
@@ -322,23 +374,36 @@ function calc(){
   const start = $('start').value && parseD($('start').value);
   const today = $('today').value && parseD($('today').value);
   const rows = [];
-  const head = product === 'amo' ? 'amoCRM «'+t.name+'»\n' : '';
   const out = (title, sum, text) => {
     $('resTitle').textContent = title;
     $('resSum').innerHTML = sum;
     $('resRows').innerHTML = rows.map(r=>`<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
-    $('copyBtn').dataset.text = text ? head + text : '';
+    $('copyBtn').dataset.text = text || '';
   };
   if (!start || !today){ out('Доплатить','—'); return; }
   if (users < t.minUsers){ out('Доплатить','<span class="err" style="font-size:18px">Минимум '+t.minUsers+' пользователей</span>'); return; }
   if (users > t.maxUsers){ out('Доплатить','<span class="err" style="font-size:18px">В тарифе максимум '+t.maxUsers+' пользователей</span>'); return; }
 
   const end = addMonths(start, p.months);
+  const opts = selectedOptions();
+  const optM = opts.reduce((s,o)=>s+o.price, 0);
+  const optNames = opts.map(o=>o.name).join('; ');
   const perMonth = monthly(t, users);
-  const paidSum = perMonth * p.paid;
+  const paidSum = (perMonth + optM) * p.paid;
   const simple = t.base === 0 && t.included === 0;
+  const vat = product === 'amo' ? ', без НДС' : '';
+  const prod = product === 'amo' ? 'Лицензия amoCRM «'+t.name+'»' : 'Виджеты Флайск';
+  const mw = x => x.toFixed(2).replace('.', ',');
+  const clientPeriod = q => {
+    const gift = q.months - q.paid;
+    if (product === 'amo') return gift > 0 ? `${q.months} мес. (оплата ${q.paid} мес. + ${gift} в подарок)` : `${q.months} мес.`;
+    return periodLabel(q);
+  };
+  const optLine = opts.length ? `\nПодключённые опции: ${optNames} — ${fmt(optM)} в мес.` : '';
+  const close = '\n\nЕсли всё верно, выставим счёт.';
   if (product === 'amo') rows.push(['Тариф', t.name]);
   rows.push(['Куплено', `${periodLabel(p)}, ${users} польз.`]);
+  if (opts.length) rows.push(['Опции', `${optNames} — ${fmt(optM)} в мес.`]);
   rows.push(['Оплачено', fmt(paidSum)]);
   rows.push(['Тариф действует', `${dfmt(start)} — ${dfmt(end)}`]);
 
@@ -348,28 +413,50 @@ function calc(){
   const rem = remainingMonths(today, end);
   rows.push(['Осталось до конца', `${rem.full} мес. ${rem.days} дн. (≈ ${rem.months.toFixed(2)} мес.)`]);
 
+  const err = m => out('Доплатить','<span class="err" style="font-size:18px">'+m+'</span>');
+  const addN = mode === 'term' ? 0 : +$('add').value;
+  if (mode !== 'term'){
+    if (!(addN >= 1)){ out('Доплатить','—'); return; }
+    if (users + addN > t.maxUsers){ err('Лимит тарифа — '+t.maxUsers+' польз., докупить нельзя'); return; }
+  }
+  const total = users + addN;
+  const usersLine = `Сейчас: ${users} польз., подписка оплачена до ${dfmt(end)}.`;
+
+  // докупка пользователей — без бонусов: полная цена × остаток месяцев; опции от числа пользователей не зависят
+  let topUp = 0, topFormula = '', topFormulaRow = '';
+  if (addN){
+    const delta = monthly(t, total) - perMonth;
+    topUp = Math.ceil(delta * rem.months);
+    topFormulaRow = simple ? `${t.pricePerUserMonth} ₽ × ${addN} польз. × ${rem.months.toFixed(2)} мес.` : `${fmt(delta)} в мес. × ${rem.months.toFixed(2)} мес.`;
+    topFormula = simple ? `${t.pricePerUserMonth} ₽ × ${addN} польз. × ${mw(rem.months)} мес.` : `${fmt(delta)} в мес. × ${mw(rem.months)} мес.`;
+  }
+  // продление — на всех пользователей, бонусные месяцы действуют
+  let extSum = 0, ext, newEnd, extFormulaRow = '';
+  if (mode !== 'users'){
+    ext = t.periods[+$('extPeriod').value] || t.periods[0];
+    extSum = (monthly(t, total) + optM) * ext.paid;
+    newEnd = addMonths(end, ext.months);
+    extFormulaRow = `${fmt(monthly(t, total) + optM)} в мес. × ${ext.paid} опл. мес.`;
+  }
+
   if (mode === 'users'){
-    const add = +$('add').value;
-    if (!(add >= 1)){ out('Доплатить','—'); return; }
-    if (users + add > t.maxUsers){ out('Доплатить','<span class="err" style="font-size:18px">Лимит тарифа — '+t.maxUsers+' польз., докупить нельзя</span>'); return; }
-    // без бонусов: полная цена за пользователя в месяц × остаток месяцев
-    const delta = monthly(t, users + add) - perMonth;
-    const sum = Math.ceil(delta * rem.months);
-    const formula = simple ? `${t.pricePerUserMonth} ₽ × ${add} польз. × ${rem.months.toFixed(2)} мес.` : `${fmt(delta)} в мес. × ${rem.months.toFixed(2)} мес.`;
-    const formulaCopy = simple ? `${t.pricePerUserMonth} ₽ × ${add} × ${rem.months.toFixed(2)} мес.` : `${fmt(delta)} в мес. × ${rem.months.toFixed(2)} мес.`;
-    rows.push(['Формула', formula]);
-    rows.push(['Пользователей после докупки', users + add]);
-    const text = `Докупка ${add} польз.\nТариф: ${periodLabel(p)}, ${users} польз., ${dfmt(start)} — ${dfmt(end)}.\nОстаток срока: ${rem.full} мес. ${rem.days} дн.\nДоплата: ${fmt(sum)} (${formulaCopy}, без бонусов). Итого пользователей: ${users+add}.`;
-    out(`Доплатить за ${add} польз. до конца срока`, fmt(sum), text);
-  } else {
-    const ext = t.periods[+$('extPeriod').value] || t.periods[0];
-    const sum = perMonth * ext.paid;
-    const newEnd = addMonths(end, ext.months);
+    rows.push(['Формула', topFormulaRow]);
+    rows.push(['Пользователей после докупки', total]);
+    const text = `Здравствуйте!\n\nРассчитали докупку пользователей.\n\n${prod}.\n${usersLine}\nДобавляем: ${addN} польз. (станет ${total}).\nДо конца оплаченного периода осталось ${rem.full} мес. ${rem.days} дн.\n\nСтоимость докупки: ${fmt(topUp)}${vat}\nРасчёт: ${topFormula} (бонусные месяцы при докупке пользователей не начисляются).${close}`;
+    out(`Доплатить за ${addN} польз. до конца срока`, fmt(topUp), text);
+  } else if (mode === 'term'){
     rows.push(['Продление', `${periodLabel(ext)} для ${users} польз.`]);
     rows.push(['Новая дата окончания', dfmt(newEnd)]);
-    rows.push(['Формула', simple ? `${t.pricePerUserMonth} ₽ × ${users} польз. × ${ext.paid} опл. мес.` : `${fmt(perMonth)} в мес. × ${ext.paid} опл. мес.`]);
-    const text = `Продление на ${periodLabel(ext)} для ${users} польз.\nСейчас действует до ${dfmt(end)}, после продления — до ${dfmt(newEnd)}.\nК оплате: ${fmt(sum)}.`;
-    out('К оплате за продление', fmt(sum), text);
+    rows.push(['Формула', extFormulaRow]);
+    const text = `Здравствуйте!\n\nРассчитали продление.\n\n${prod}, ${users} польз.\nПодписка оплачена до ${dfmt(end)}.\nПродлеваем на ${clientPeriod(ext)}. После продления подписка будет действовать до ${dfmt(newEnd)}.${optLine}\n\nК оплате: ${fmt(extSum)}${vat}${close}`;
+    out('К оплате за продление', fmt(extSum), text);
+  } else {
+    rows.push(['1. Докупка', `${fmt(topUp)} (${topFormulaRow})`]);
+    rows.push(['2. Продление', `${fmt(extSum)} (${extFormulaRow})`]);
+    rows.push(['Продление', `${periodLabel(ext)} для ${total} польз.`]);
+    rows.push(['Новая дата окончания', dfmt(newEnd)]);
+    const text = `Здравствуйте!\n\nРассчитали докупку пользователей вместе с продлением.\n\n${prod}.\n${usersLine}\n\n1) Докупка ${addN} польз. до ${dfmt(end)} (осталось ${rem.full} мес. ${rem.days} дн.): ${fmt(topUp)}\nРасчёт: ${topFormula} (бонусные месяцы при докупке пользователей не начисляются).\n\n2) Продление на ${clientPeriod(ext)} для ${total} польз.: ${fmt(extSum)}\nПосле продления подписка будет действовать до ${dfmt(newEnd)}.${optLine}\n\nИтого к оплате: ${fmt(topUp + extSum)}${vat}${close}`;
+    out('Итого к оплате: докупка + продление', fmt(topUp + extSum), text);
   }
 }
 
@@ -379,14 +466,15 @@ const s = new Date(now.getFullYear(), now.getMonth()-1, now.getDate());
 $('start').value = `${s.getFullYear()}-${String(s.getMonth()+1).padStart(2,'0')}-${String(s.getDate()).padStart(2,'0')}`;
 { const n=now; $('today').value = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; }
 fillPlans();
+fillOptions();
 fillSelects(true);
 $('period').value = 3; // 1 год по умолчанию
 
 document.querySelectorAll('#modeTabs .tab').forEach(el=>el.onclick=()=>{
   document.querySelectorAll('#modeTabs .tab').forEach(x=>x.classList.remove('on'));
   el.classList.add('on'); mode = el.dataset.mode;
-  $('addUsersBox').classList.toggle('hide', mode!=='users');
-  $('addTermBox').classList.toggle('hide', mode!=='term');
+  $('addUsersBox').classList.toggle('hide', mode==='term');
+  $('addTermBox').classList.toggle('hide', mode==='users');
   calc();
 });
 function resetTariff(){
@@ -398,6 +486,7 @@ document.querySelectorAll('#productTabs .tab').forEach(el=>el.onclick=()=>{
   document.querySelectorAll('#productTabs .tab').forEach(x=>x.classList.remove('on'));
   el.classList.add('on'); product = el.dataset.product;
   $('planBox').classList.toggle('hide', product!=='amo');
+  $('optCard').classList.toggle('hide', product!=='amo');
   resetTariff();
 });
 $('plan').addEventListener('input', resetTariff);
